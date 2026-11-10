@@ -1,6 +1,7 @@
 const express = require('express');
 const { query } = require('../db');
 const { asyncHandler } = require('../utils/helpers');
+const { withFollowUp } = require('../utils/followups');
 
 const router = express.Router();
 
@@ -29,8 +30,16 @@ router.get('/profile', asyncHandler(async (req, res) => {
     query(`SELECT u.user_id, u.full_name, u.email, ma.assigned_on
            FROM marketing_assignments ma JOIN users u ON u.user_id = ma.agent_user_id
            WHERE ma.employee_id = ? AND ma.is_active = TRUE LIMIT 1`, [id]),
-    query(`SELECT s.submission_id, s.client_name, s.job_title, s.submitted_on, s.status, v.vendor_name
+    // No bill rate or vendor recruiter name here: those stay internal
+    query(`SELECT s.submission_id, s.client_name, s.job_title, s.position_ref, s.submitted_on, s.status,
+                  s.last_activity_on, s.next_follow_up_on, v.vendor_name, u.full_name AS agent_name,
+                  (SELECT a.vendor_feedback FROM submission_activities a
+                    WHERE a.submission_id = s.submission_id AND a.vendor_feedback IS NOT NULL
+                    ORDER BY a.created_at DESC, a.activity_id DESC LIMIT 1) AS latest_vendor_feedback,
+                  (SELECT COUNT(*) FROM update_requests ur
+                    WHERE ur.submission_id = s.submission_id AND ur.resolved_on IS NULL) AS open_update_request
            FROM submissions s LEFT JOIN vendors v ON v.vendor_id = s.vendor_id
+           JOIN users u ON u.user_id = s.agent_user_id
            WHERE s.employee_id = ? ORDER BY s.submitted_on DESC`, [id]),
   ]);
 
@@ -53,7 +62,7 @@ router.get('/profile', asyncHandler(async (req, res) => {
     },
     marketing_agent: agentRows[0] || null,
     profiles_submitted: submissions.length,
-    submissions,
+    submissions: submissions.map((s) => withFollowUp(s)),
   });
 }));
 

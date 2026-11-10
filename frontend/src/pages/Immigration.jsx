@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { api, fmtDate } from '../api';
 import { DaysLeft, Loading, StatusPill, Table, useApi } from '../components/ui';
+import { DocState } from '../components/DocumentVault';
 
 const CASE_STATUSES = ['ACTIVE', 'IN_PROGRESS', 'FILED', 'RENEWED', 'EXPIRED'];
 const EMPTY = {
@@ -18,6 +19,13 @@ export default function Immigration() {
   const [within, setWithin] = useState('');
   const visas = useApi(`/immigration${within ? `?within=${within}` : ''}`);
   const alerts = useApi('/alerts?unread=true');
+  // Immigration documents on file for each employee (passport, visa stamp, I-94, I-797, LCA, EAD, I-20 ...)
+  const docs = useApi('/documents/compliance');
+  const immDocs = Object.fromEntries((docs.data || []).map((c) => {
+    const items = c.items.filter((i) => i.category === 'Immigration');
+    const worst = ['EXPIRED', 'MISSING', 'REJECTED', 'PENDING', 'EXPIRING'].find((st) => items.some((i) => i.state === st)) || 'VERIFIED';
+    return [c.employee_id, { items, worst, ok: items.filter((i) => ['VERIFIED', 'EXPIRING'].includes(i.state)).length }];
+  }));
   const employees = useApi(canEdit ? '/employees' : null);
   const [form, setForm] = useState(null); // null = closed; { ...fields, visa_id? } = open
   const [message, setMessage] = useState('');
@@ -135,6 +143,17 @@ export default function Immigration() {
             { key: 'days_left', label: 'Visa', render: (r) => <DaysLeft days={r.days_left} /> },
             { key: 'lca_expiry_date', label: 'LCA expiry', render: (r) => fmtDate(r.lca_expiry_date) },
             { key: 'lca_days_left', label: 'LCA', render: (r) => <DaysLeft days={r.lca_days_left} /> },
+            { key: 'docs', label: 'Documents', render: (r) => {
+              const d = immDocs[r.employee_id];
+              if (!d) return <span className="muted">…</span>;
+              const gaps = d.items.filter((i) => !['VERIFIED'].includes(i.state));
+              return (
+                <Link to={`/employees/${r.employee_id}`} className="doc-cell" title={d.items.map((i) => `${i.label}: ${i.state.toLowerCase()}`).join('\n')}>
+                  <span className="num">{d.ok}/{d.items.length}</span> <DocState state={d.worst} />
+                  {gaps.length > 0 && <div className="muted small">{gaps.slice(0, 3).map((i) => i.label.replace(/ \(.*\)/, '')).join(', ')}{gaps.length > 3 ? '…' : ''}</div>}
+                </Link>
+              );
+            } },
             {
               key: 'case_status', label: 'Case',
               render: (r) => (canEdit

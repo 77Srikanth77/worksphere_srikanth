@@ -4,7 +4,7 @@ import { api } from '../api';
 import { Loading, StatusPill, Table, useApi } from '../components/ui';
 
 // Admin: create and manage login accounts (marketing agents, HR, Legal, employees, ...)
-const ROLES = ['MARKETING', 'HR', 'LEGAL', 'EMPLOYEE', 'CEO', 'ADMIN'];
+const ROLES = ['MARKETING', 'MARKETING_MANAGER', 'HR', 'LEGAL', 'EMPLOYEE', 'CEO', 'ADMIN'];
 const EMPTY = { full_name: '', email: '', password: '', role: 'MARKETING', employee_id: '' };
 
 export default function Users() {

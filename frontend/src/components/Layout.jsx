@@ -1,29 +1,21 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { BrandFooter, PoweredBy } from '../branding';
-
-// Menu items per role. ADMIN sees all of them.
-const NAV = [
-  { to: '/dashboard', label: 'Dashboard', roles: ['CEO'] },
-  { to: '/employees', label: 'Employees', roles: ['CEO', 'HR', 'LEGAL'] },
-  { to: '/immigration', label: 'Immigration', roles: ['CEO', 'HR', 'LEGAL'] },
-  { to: '/marketing', label: 'My Marketing', roles: ['MARKETING'] },
-  { to: '/profile', label: 'My Profile', roles: ['EMPLOYEE'] },
-  { to: '/users', label: 'Users', roles: ['ADMIN'] },
-];
+import { navFor } from '../nav';
+import NotificationBell from './NotificationBell';
 
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const items = NAV.filter((n) => user.role === 'ADMIN' || n.roles.includes(user.role));
+  const items = navFor(user.role);
 
   return (
     <div className="shell">
       <header className="topbar">
-        <div className="brand">
+        <Link to="/home" className="brand" aria-label="WorkSphere home" title="Home">
           <span className="brand-name">WorkSphere</span>
           <PoweredBy className="compact" />
-        </div>
+        </Link>
         <nav>
           {items.map((n) => (
             <NavLink key={n.to} to={n.to} className={({ isActive }) => (isActive ? 'active' : '')}>
@@ -32,6 +24,7 @@ export default function Layout() {
           ))}
         </nav>
         <div className="who">
+          <NotificationBell />
           <span>{user.full_name}</span>
           <span className="role">{user.role}</span>
           <button className="link" onClick={() => { logout(); navigate('/login'); }}>Log out</button>

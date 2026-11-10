@@ -10,6 +10,7 @@ export const HOME_BY_ROLE = {
   HR: '/employees',
   LEGAL: '/immigration',
   MARKETING: '/marketing',
+  MARKETING_MANAGER: '/marketing-team',
   EMPLOYEE: '/profile',
 };
 

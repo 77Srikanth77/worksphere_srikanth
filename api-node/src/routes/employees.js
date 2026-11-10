@@ -11,17 +11,37 @@ const EMP_COLUMNS = [
 ];
 const REQUIRED = ['employee_id', 'first_name', 'last_name', 'hire_date', 'email'];
 
-const READ = ['CEO', 'HR', 'LEGAL', 'MARKETING'];
+const READ = ['CEO', 'HR', 'LEGAL', 'MARKETING', 'MARKETING_MANAGER'];
 const WRITE = ['HR'];
 
-// List employees with their current assignment (project / bench)
+// Roles that may see bill rates and balances
+const FINANCE = ['ADMIN', 'CEO', 'HR'];
+
+// List employees with their current assignment, client, vendor, latest visa and marketing agent.
+// Bill rate is included only for finance roles.
 router.get('/', authorize(...READ), asyncHandler(async (req, res) => {
+  const finance = FINANCE.includes(req.user.role);
   const rows = await query(`
-    SELECT e.*, w.status AS current_status, w.project_name, w.job_title, w.work_location,
-           c.client_name
+    SELECT e.*, w.work_id, w.status AS current_status, w.project_name, w.job_title, w.work_location,
+           w.city, w.state, w.start_date AS current_since,
+           w.client_id, c.client_name, w.vendor_id, v.vendor_name,
+           iv.visa_type, iv.expiry_date AS visa_expiry, iv.lca_expiry_date, iv.case_status AS visa_case_status,
+           CAST(julianday(MIN(iv.expiry_date, COALESCE(iv.lca_expiry_date, iv.expiry_date))) - julianday(date('now','localtime')) AS INTEGER) AS visa_days_left,
+           au.full_name AS marketing_agent
+           ${finance ? `, br.bill_rate_cents, br.rate_unit, br.payment_terms_days,
+           (SELECT COALESCE(SUM(i.amount_cents), 0) - COALESCE(SUM((SELECT SUM(p.amount_cents) FROM invoice_payments p WHERE p.invoice_id = i.invoice_id)), 0)
+              FROM invoices i WHERE i.employee_id = e.employee_id AND i.is_void = 0) AS balance_cents` : ''}
     FROM emp e
-    LEFT JOIN work w    ON w.employee_id = e.employee_id AND w.end_date IS NULL
+    LEFT JOIN work w ON w.work_id = (SELECT w2.work_id FROM work w2 WHERE w2.employee_id = e.employee_id AND w2.end_date IS NULL
+                                     ORDER BY w2.start_date DESC LIMIT 1)
     LEFT JOIN clients c ON c.client_id = w.client_id
+    LEFT JOIN vendors v ON v.vendor_id = w.vendor_id
+    LEFT JOIN immigration iv ON iv.visa_id = (SELECT i2.visa_id FROM immigration i2 WHERE i2.employee_id = e.employee_id
+                                              ORDER BY i2.expiry_date DESC LIMIT 1)
+    LEFT JOIN marketing_assignments ma ON ma.employee_id = e.employee_id AND ma.is_active = TRUE
+    LEFT JOIN users au ON au.user_id = ma.agent_user_id
+    ${finance ? `LEFT JOIN billing_rates br ON br.work_id = w.work_id AND br.effective_from <= date('now','localtime')
+                 AND (br.effective_to IS NULL OR br.effective_to >= date('now','localtime'))` : ''}
     ORDER BY e.employee_id`);
   res.json(rows);
 }));

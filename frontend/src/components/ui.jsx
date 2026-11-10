@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 
 /** Loads `path` from the API. Returns { data, error, loading, reload }. */
@@ -15,12 +15,52 @@ export function useApi(path) {
   return { ...state, reload: load };
 }
 
-export function Stat({ label, value, tone }) {
-  return (
-    <div className={`stat ${tone || ''}`}>
+/**
+ * Number tile. With onClick it becomes a button that opens the list behind the number
+ * (shown in a <DrillPanel> below the tiles); `active` marks the tile whose list is open.
+ */
+export function Stat({ label, value, tone, onClick, active }) {
+  const body = (
+    <>
       <div className="stat-value">{value ?? '—'}</div>
       <div className="stat-label">{label}</div>
-    </div>
+      {onClick && <div className="stat-more">{active ? 'Hide list ▴' : 'View list ▾'}</div>}
+    </>
+  );
+  if (!onClick) return <div className={`stat ${tone || ''}`}>{body}</div>;
+  return (
+    <button type="button" className={`stat clickable ${tone || ''} ${active ? 'active' : ''}`} onClick={onClick} aria-expanded={!!active}>
+      {body}
+    </button>
+  );
+}
+
+/** Tracks which tile's list is open. Clicking the same tile again closes it. */
+export function useDrill() {
+  const [open, setOpen] = useState(null);
+  return {
+    open,
+    toggle: (key) => setOpen((cur) => (cur === key ? null : key)),
+    close: () => setOpen(null),
+    is: (key) => open === key,
+  };
+}
+
+/** The list behind a clicked tile. Scrolls itself into view when it opens or changes. */
+export function DrillPanel({ title, rows, columns, empty, loading, error, onClose, children }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [title]);
+  return (
+    <section className="card drill" ref={ref} aria-live="polite">
+      <div className="page-head">
+        <h3>{title} <span className="muted">· {rows ? rows.length : '…'}</span></h3>
+        <button className="link" onClick={onClose}>Close</button>
+      </div>
+      {children}
+      {rows ? <Table rows={rows} columns={columns} empty={empty} /> : <Loading loading={loading ?? true} error={error} />}
+    </section>
   );
 }
 
@@ -32,7 +72,7 @@ export function DaysLeft({ days }) {
 }
 
 export function StatusPill({ value }) {
-  return <span className={`pill tag-${String(value || '').toLowerCase()}`}>{String(value || '—').replace('_', ' ')}</span>;
+  return <span className={`pill tag-${String(value || '').toLowerCase()}`}>{String(value || '—').replaceAll('_', ' ')}</span>;
 }
 
 export function Loading({ error, loading }) {

@@ -23,7 +23,7 @@ const toParam = (v) => (v === true ? 1 : v === false ? 0 : v === undefined ? nul
  * { insertId, affectedRows } (same shape the routes already use).
  * Kept async so route code reads the same as with any other driver.
  */
-async function query(sql, params = []) {
+function querySync(sql, params = []) {
   try {
     const stmt = db.prepare(sql);
     const values = params.map(toParam);
@@ -38,6 +38,23 @@ async function query(sql, params = []) {
   }
 }
 
+async function query(sql, params = []) {
+  return querySync(sql, params);
+}
+
+/** Runs fn(querySync) inside one transaction: everything is saved, or nothing is. */
+function transaction(fn) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const result = fn(querySync);
+    db.exec('COMMIT');
+    return result;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
 // SQLite (extended) result codes -> names
 const SQLITE_CODES = {
   5: 'SQLITE_BUSY',
@@ -48,4 +65,4 @@ const SQLITE_CODES = {
   2067: 'SQLITE_CONSTRAINT_UNIQUE',
 };
 
-module.exports = { db, query, DB_FILE };
+module.exports = { db, query, querySync, transaction, DB_FILE };

@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { api, fmtDate } from '../api';
-import { Loading, Stat, StatusPill, Table, useApi } from '../components/ui';
+import { DrillPanel, Loading, Stat, StatusPill, Table, useApi, useDrill } from '../components/ui';
+import { CHANNELS, FollowUpBadge, SubmissionDetail, submissionColumns } from '../components/submissions';
 
-const SUB_STATUSES = ['SUBMITTED', 'SHORTLISTED', 'REJECTED', 'PLACED'];
-const today = () => new Date().toISOString().slice(0, 10);
+// Local date (not UTC) as YYYY-MM-DD
+const today = () => new Date().toLocaleDateString('en-CA');
 const mondayOf = (d = new Date()) => {
   const m = new Date(d);
   m.setDate(m.getDate() - ((m.getDay() + 6) % 7));
@@ -14,7 +15,12 @@ const mondayOf = (d = new Date()) => {
 export default function Marketing() {
   const dash = useApi('/marketing/dashboard');
   const vendors = useApi('/vendors');
-  const [sub, setSub] = useState({ employee_id: '', vendor_id: '', client_name: '', job_title: '', rate: '', submitted_on: today() });
+  const EMPTY_SUB = { employee_id: '', vendor_id: '', client_name: '', job_title: '', rate: '', position_ref: '', vendor_contact_name: '', channel: 'EMAIL', submitted_on: today() };
+  const [sub, setSub] = useState(EMPTY_SUB);
+  const [showSubmit, setShowSubmit] = useState(false);
+  const [openId, setOpenId] = useState(null);
+  const [filter, setFilter] = useState('OPEN');
+  const drill = useDrill();
   const [contact, setContact] = useState({ vendor_id: '', contacted_on: today(), notes: '' });
   const [weekly, setWeekly] = useState({ week_start: mondayOf(), summary: '' });
   const [error, setError] = useState('');
@@ -30,23 +36,46 @@ export default function Marketing() {
     }
   };
 
-  const changeStatus = async (id, status) => {
-    await api(`/marketing/submissions/${id}`, { method: 'PATCH', body: { status } });
-    dash.reload();
-  };
-
   if (!dash.data) return <Loading {...dash} />;
   const d = dash.data;
+  const subCols = submissionColumns(setOpenId);
+  const DRILLS = {
+    employees: { title: 'Employees assigned to me', rows: d.employees, columns: [
+      { key: 'employee_name', label: 'Employee' },
+      { key: 'job_title', label: 'Skill / title' },
+      { key: 'current_status', label: 'Status', render: (r) => <StatusPill value={r.current_status || 'BENCH'} /> },
+      { key: 'profiles_submitted', label: 'Profiles submitted' },
+      { key: 'assigned_on', label: 'Assigned', render: (r) => fmtDate(r.assigned_on) },
+    ] },
+    submitted: { title: 'All my submissions', rows: d.submissions, columns: subCols },
+    vendors: { title: 'Vendor contacts', rows: d.vendors_contacted, columns: [
+      { key: 'contacted_on', label: 'Date', render: (r) => fmtDate(r.contacted_on) },
+      { key: 'vendor_name', label: 'Vendor' },
+      { key: 'contact_name', label: 'Contact' },
+      { key: 'notes', label: 'Notes' },
+    ] },
+    placed: { title: 'Placements', rows: d.placed, columns: subCols },
+    overdue: { title: 'Overdue follow-ups', rows: d.submissions.filter((r) => r.follow_up_state === 'OVERDUE'), columns: subCols },
+    due: { title: 'Follow-ups due', rows: d.submissions.filter((r) => r.follow_up_state === 'DUE'), columns: subCols },
+    requests: { title: 'Employee update requests', rows: d.submissions.filter((r) => r.open_update_request), columns: subCols },
+  };
+  const dr = drill.open && DRILLS[drill.open];
+  const tile = (key) => ({ onClick: () => drill.toggle(key), active: drill.is(key) });
 
   return (
     <>
       <h2>My marketing</h2>
       <div className="stats">
-        <Stat label="Employees assigned" value={d.summary.employees_assigned} />
-        <Stat label="Profiles submitted" value={d.summary.profiles_submitted} />
-        <Stat label="Vendors contacted" value={d.summary.vendors_contacted} />
-        <Stat label="Employees placed" value={d.summary.employees_placed} tone="good" />
+        <Stat label="Employees assigned" value={d.summary.employees_assigned} {...tile('employees')} />
+        <Stat label="Profiles submitted" value={d.summary.profiles_submitted} {...tile('submitted')} />
+        <Stat label="Vendors contacted" value={d.summary.vendors_contacted} {...tile('vendors')} />
+        <Stat label="Employees placed" value={d.summary.employees_placed} tone="good" {...tile('placed')} />
+        <Stat label="Follow-ups overdue" value={d.summary.follow_ups_overdue} tone={d.summary.follow_ups_overdue ? 'bad' : ''} {...tile('overdue')} />
+        <Stat label="Follow-ups due" value={d.summary.follow_ups_due} tone={d.summary.follow_ups_due ? 'warn' : ''} {...tile('due')} />
+        <Stat label="Update requests" value={d.summary.open_update_requests} tone={d.summary.open_update_requests ? 'warn' : ''} {...tile('requests')} />
       </div>
+      {dr && <DrillPanel title={dr.title} rows={dr.rows} columns={dr.columns} empty="Nothing here right now." onClose={drill.close} />}
+      <p className="hint">Follow up with the vendor every {d.rules.due_days} business days. A submission with no activity for {d.rules.overdue_days} business days is overdue and is reported to the Marketing Manager.</p>
       {error && <p className="error">{error}</p>}
 
       <section className="card">
@@ -67,38 +96,59 @@ export default function Marketing() {
       </section>
 
       <section className="card">
-        <h3>Submit a profile</h3>
-        <form className="form-grid inset" onSubmit={(e) => { e.preventDefault(); post('/marketing/submissions', sub, () => setSub({ ...sub, client_name: '', job_title: '', rate: '' })); }}>
-          <div className="field"><label htmlFor="s-emp">Employee *</label>
-            <select id="s-emp" value={sub.employee_id} onChange={(e) => setSub({ ...sub, employee_id: e.target.value })} required>
-              <option value="">Choose…</option>{d.employees.map((e) => <option key={e.employee_id} value={e.employee_id}>{e.employee_name}</option>)}
-            </select></div>
-          <div className="field"><label htmlFor="s-vendor">Vendor</label>
-            <select id="s-vendor" value={sub.vendor_id} onChange={(e) => setSub({ ...sub, vendor_id: e.target.value })}>
-              <option value="">—</option>{vendors.data?.map((v) => <option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>)}
-            </select></div>
-          <div className="field"><label htmlFor="s-client">End client</label><input id="s-client" value={sub.client_name} onChange={(e) => setSub({ ...sub, client_name: e.target.value })} /></div>
-          <div className="field"><label htmlFor="s-title">Job title</label><input id="s-title" value={sub.job_title} onChange={(e) => setSub({ ...sub, job_title: e.target.value })} /></div>
-          <div className="field"><label htmlFor="s-rate">Rate</label><input id="s-rate" value={sub.rate} onChange={(e) => setSub({ ...sub, rate: e.target.value })} placeholder="$70/hr" /></div>
-          <div className="field"><label htmlFor="s-date">Submitted on</label><input id="s-date" type="date" value={sub.submitted_on} onChange={(e) => setSub({ ...sub, submitted_on: e.target.value })} /></div>
-          <div className="actions wide"><button type="submit">Save submission</button></div>
-        </form>
+        <div className="page-head">
+          <h3>Submissions &amp; follow-ups</h3>
+          <div className="actions">
+            <select aria-label="Show" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ width: 'auto' }}>
+              <option value="OPEN">Open</option>
+              <option value="ATTENTION">Needs attention</option>
+              <option value="ALL">All</option>
+            </select>
+            <button onClick={() => setShowSubmit(!showSubmit)}>{showSubmit ? 'Close' : 'Submit a profile'}</button>
+          </div>
+        </div>
+        {showSubmit && (
+          <form className="form-grid inset" onSubmit={(e) => { e.preventDefault(); post('/marketing/submissions', sub, () => { setSub(EMPTY_SUB); setShowSubmit(false); }); }}>
+            <div className="field"><label htmlFor="s-emp">Employee *</label>
+              <select id="s-emp" value={sub.employee_id} onChange={(e) => setSub({ ...sub, employee_id: e.target.value })} required>
+                <option value="">Choose…</option>{d.employees.map((e) => <option key={e.employee_id} value={e.employee_id}>{e.employee_name}</option>)}
+              </select></div>
+            <div className="field"><label htmlFor="s-vendor">Vendor</label>
+              <select id="s-vendor" value={sub.vendor_id} onChange={(e) => setSub({ ...sub, vendor_id: e.target.value })}>
+                <option value="">—</option>{vendors.data?.map((v) => <option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>)}
+              </select></div>
+            <div className="field"><label htmlFor="s-contact">Vendor contact</label><input id="s-contact" value={sub.vendor_contact_name} onChange={(e) => setSub({ ...sub, vendor_contact_name: e.target.value })} placeholder="Recruiter name" /></div>
+            <div className="field"><label htmlFor="s-channel">Submitted via</label>
+              <select id="s-channel" value={sub.channel} onChange={(e) => setSub({ ...sub, channel: e.target.value })}>
+                {CHANNELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select></div>
+            <div className="field"><label htmlFor="s-client">End client</label><input id="s-client" value={sub.client_name} onChange={(e) => setSub({ ...sub, client_name: e.target.value })} /></div>
+            <div className="field"><label htmlFor="s-title">Job title</label><input id="s-title" value={sub.job_title} onChange={(e) => setSub({ ...sub, job_title: e.target.value })} /></div>
+            <div className="field"><label htmlFor="s-ref">Position / req ID</label><input id="s-ref" value={sub.position_ref} onChange={(e) => setSub({ ...sub, position_ref: e.target.value })} /></div>
+            <div className="field"><label htmlFor="s-rate">Rate (internal)</label><input id="s-rate" value={sub.rate} onChange={(e) => setSub({ ...sub, rate: e.target.value })} placeholder="$70/hr" /></div>
+            <div className="field"><label htmlFor="s-date">Submitted on</label><input id="s-date" type="date" value={sub.submitted_on} onChange={(e) => setSub({ ...sub, submitted_on: e.target.value })} /></div>
+            <div className="actions wide"><button type="submit">Save submission</button></div>
+          </form>
+        )}
         <Table
-          rows={d.submissions}
+          rows={d.submissions.filter((r) => filter === 'ALL'
+            || (filter === 'OPEN' && r.follow_up_state !== 'CLOSED')
+            || (filter === 'ATTENTION' && (['OVERDUE', 'DUE'].includes(r.follow_up_state) || r.open_update_request)))}
+          empty={filter === 'ATTENTION' ? 'Nothing needs attention. All follow-ups are on schedule.' : 'No submissions.'}
           columns={[
-            { key: 'submitted_on', label: 'Date', render: (r) => fmtDate(r.submitted_on) },
-            { key: 'employee_name', label: 'Employee' },
-            { key: 'vendor_name', label: 'Vendor' },
-            { key: 'client_name', label: 'Client' },
+            { key: 'employee_name', label: 'Employee', render: (r) => (
+              <>{r.employee_name}{r.open_update_request ? <div><span className="pill warning">Update requested</span></div> : null}</>) },
             { key: 'job_title', label: 'Role' },
-            { key: 'rate', label: 'Rate' },
-            { key: 'status', label: 'Status', render: (r) => (
-              <select aria-label="Submission status" value={r.status} onChange={(e) => changeStatus(r.submission_id, e.target.value)}>
-                {SUB_STATUSES.map((s) => <option key={s}>{s}</option>)}
-              </select>) },
+            { key: 'vendor', label: 'Vendor / client', render: (r) => [r.vendor_name, r.client_name].filter(Boolean).join(' / ') || '—' },
+            { key: 'status', label: 'Stage', render: (r) => <StatusPill value={r.status} /> },
+            { key: 'last_activity_on', label: 'Last activity', render: (r) => fmtDate(r.last_activity_on) },
+            { key: 'fu', label: 'Follow-up', render: (r) => <FollowUpBadge row={r} /> },
+            { key: 'x', label: '', render: (r) => <button className="link" onClick={() => setOpenId(r.submission_id)}>{openId === r.submission_id ? 'Open ↓' : 'Open'}</button> },
           ]}
         />
       </section>
+
+      {openId && <SubmissionDetail key={openId} id={openId} mode="agent" onClose={() => setOpenId(null)} onChanged={dash.reload} />}
 
       <div className="grid-2">
         <section className="card">

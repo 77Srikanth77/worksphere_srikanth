@@ -16,6 +16,9 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from . import reports
 from .config import settings
 from .jobs.expiry_alerts import run_expiry_check
+from .jobs.document_expiry import run_document_expiry_check
+from .jobs.followups import run_followup_check
+from .jobs.timesheet_reminders import run_timesheet_reminders
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("worksphere")
@@ -31,8 +34,28 @@ async def lifespan(app: FastAPI):
         id="expiry_alerts",
         replace_existing=True,
     )
+    scheduler.add_job(
+        run_document_expiry_check,
+        CronTrigger(hour=settings.alert_hour, minute=settings.alert_minute),
+        id="document_expiry",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_followup_check,
+        CronTrigger(day_of_week="mon-fri", hour=settings.followup_hour, minute=0),
+        id="followups",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_timesheet_reminders,
+        CronTrigger(day_of_week=settings.timesheet_reminder_day, hour=settings.timesheet_reminder_hour, minute=0),
+        id="timesheet_reminders",
+        replace_existing=True,
+    )
     scheduler.start()
     log.info("Expiry alert job scheduled daily at %02d:%02d", settings.alert_hour, settings.alert_minute)
+    log.info("Vendor follow-up job scheduled weekdays at %02d:00", settings.followup_hour)
+    log.info("Timesheet reminders scheduled %s at %02d:00", settings.timesheet_reminder_day, settings.timesheet_reminder_hour)
     yield
     scheduler.shutdown()
 
@@ -53,7 +76,18 @@ def health():
 
 @app.post("/alerts/run", dependencies=[Depends(require_internal_key)])
 def run_alerts_now():
-    return run_expiry_check()
+    # Visa/LCA records and employee documents are checked together
+    return {**run_expiry_check(), "documents": run_document_expiry_check()}
+
+
+@app.post("/followups/run", dependencies=[Depends(require_internal_key)])
+def run_followups_now():
+    return run_followup_check()
+
+
+@app.post("/timesheets/remind", dependencies=[Depends(require_internal_key)])
+def send_timesheet_reminders_now():
+    return run_timesheet_reminders()
 
 
 @app.get("/reports/summary", dependencies=[Depends(require_internal_key)])

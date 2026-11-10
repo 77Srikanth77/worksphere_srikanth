@@ -29,12 +29,16 @@ app.use('/api/marketing', require('./routes/marketing'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/documents', require('./routes/documents'));
+app.use('/api/finance', require('./routes/finance'));
+app.use('/api/timesheets', require('./routes/timesheets'));
+app.use('/api/jobs', require('./routes/jobs'));
+app.use('/api/notifications', require('./routes/notifications'));
 
 app.use('/api/work', crudRouter({
   table: 'work',
   id: 'work_id',
   columns: ['employee_id', 'client_id', 'vendor_id', 'project_name', 'job_title', 'job_duties',
-    'work_location', 'city', 'state', 'status', 'start_date', 'end_date'],
+    'work_location', 'city', 'state', 'status', 'start_date', 'end_date', 'client_timesheet_required'],
   required: ['employee_id', 'status', 'start_date'],
   readRoles: ['CEO', 'HR', 'LEGAL', 'MARKETING'],
   writeRoles: ['HR'],
@@ -57,7 +61,7 @@ app.use('/api/vendors', crudRouter({
   id: 'vendor_id',
   columns: ['vendor_name', 'contact_name', 'contact_email', 'phone'],
   required: ['vendor_name'],
-  readRoles: ['CEO', 'HR', 'MARKETING'],
+  readRoles: ['CEO', 'HR', 'MARKETING', 'MARKETING_MANAGER'],
   writeRoles: ['HR', 'MARKETING'],
   orderBy: 'vendor_name',
 }));

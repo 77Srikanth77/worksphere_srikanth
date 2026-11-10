@@ -30,4 +30,10 @@ router.get('/marketing', authorize('CEO', 'HR'), asyncHandler((req, res) => forw
 // Lets Legal / Admin run the alert check now instead of waiting for 06:00
 router.post('/alerts/run', authorize('LEGAL'), asyncHandler((req, res) => forward(req, res, '/alerts/run', 'POST')));
 
+// Lets the Marketing Manager / CEO run the vendor follow-up check now (normally weekdays 08:00)
+router.post('/followups/run', authorize('MARKETING_MANAGER', 'CEO'), asyncHandler((req, res) => forward(req, res, '/followups/run', 'POST')));
+
+// Lets HR send the Friday timesheet reminders now
+router.post('/timesheet-reminders/run', authorize('HR'), asyncHandler((req, res) => forward(req, res, '/timesheets/remind', 'POST')));
+
 module.exports = router;

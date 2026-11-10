@@ -13,6 +13,19 @@
 PRAGMA journal_mode = WAL;   -- lets the Node API and the Python service use the file at the same time
 PRAGMA foreign_keys = OFF;
 
+DROP TABLE IF EXISTS notifications;
+DROP TABLE IF EXISTS job_posting_recipients;
+DROP TABLE IF EXISTS job_postings;
+DROP TABLE IF EXISTS document_alerts;
+DROP TABLE IF EXISTS timesheet_attachments;
+DROP TABLE IF EXISTS timesheet_entries;
+DROP TABLE IF EXISTS timesheets;
+DROP TABLE IF EXISTS invoice_payments;
+DROP TABLE IF EXISTS invoices;
+DROP TABLE IF EXISTS billing_rates;
+DROP TABLE IF EXISTS update_requests;
+DROP TABLE IF EXISTS submission_activities;
+DROP TABLE IF EXISTS schema_migrations;
 DROP TABLE IF EXISTS weekly_status;
 DROP TABLE IF EXISTS vendor_contacts;
 DROP TABLE IF EXISTS interviews;
@@ -32,7 +45,7 @@ DROP TABLE IF EXISTS roles;
 PRAGMA foreign_keys = ON;
 
 -- ---------------------------------------------------------------
--- Roles: CEO, ADMIN, HR, LEGAL, MARKETING, EMPLOYEE
+-- Roles: CEO, ADMIN, HR, LEGAL, MARKETING, MARKETING_MANAGER, EMPLOYEE
 -- ---------------------------------------------------------------
 CREATE TABLE roles (
   role_id   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,7 +125,8 @@ CREATE TABLE work (
   state         TEXT,
   status        TEXT NOT NULL DEFAULT 'PROJECT' CHECK (status IN ('PROJECT','BENCH')),
   start_date    TEXT NOT NULL,
-  end_date      TEXT
+  end_date      TEXT,
+  client_timesheet_required INTEGER NOT NULL DEFAULT 0   -- vendor/client wants a client-approved timesheet each week
 );
 CREATE INDEX idx_work_emp ON work(employee_id);
 
@@ -143,14 +157,26 @@ BEGIN
 END;
 
 CREATE TABLE documents (
-  document_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  employee_id TEXT NOT NULL REFERENCES emp(employee_id) ON DELETE CASCADE,
-  doc_type    TEXT NOT NULL,                      -- RESUME, VISA_COPY, I797, LCA ...
-  file_name   TEXT NOT NULL,
-  file_path   TEXT NOT NULL,
-  uploaded_by INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
-  uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP
+  document_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_id  TEXT NOT NULL REFERENCES emp(employee_id) ON DELETE CASCADE,
+  doc_type     TEXT NOT NULL,                      -- PASSPORT, VISA_STAMP, I94, I797, LCA, EAD, I20, I983, I9, ... (api-node/src/utils/documentTypes.js)
+  doc_number   TEXT,                               -- passport no., I-94 no., receipt no. ...
+  issue_date   TEXT,
+  expiry_date  TEXT,
+  file_name    TEXT NOT NULL,
+  file_path    TEXT NOT NULL,                      -- stored name under api-node/uploads/documents/
+  content_type TEXT,
+  size_bytes   INTEGER,
+  status       TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','VERIFIED','REJECTED')),
+  review_note  TEXT,
+  reviewed_by  INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+  reviewed_at  TEXT,
+  notes        TEXT,
+  uploaded_by  INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+  uploaded_at  TEXT DEFAULT (datetime('now','localtime'))
 );
+CREATE INDEX idx_documents_employee ON documents(employee_id, doc_type);
+CREATE INDEX idx_documents_expiry ON documents(expiry_date);
 
 -- ---------------------------------------------------------------
 -- ALERTS: written by the FastAPI scheduler. The unique constraint makes each
@@ -189,17 +215,53 @@ CREATE TABLE marketing_assignments (
   is_active     INTEGER NOT NULL DEFAULT 1
 );
 
--- Profiles (resumes) submitted by an agent to a vendor
+-- Profiles (resumes) submitted by an agent to a vendor.
+-- Pipeline: SUBMITTED -> ACKNOWLEDGED -> SCREENING_SCHEDULED -> SCREENING_DONE -> CLIENT_INTERVIEW -> OFFER -> PLACED
+-- Closed outcomes: PLACED, REJECTED, POSITION_CLOSED, NO_RESPONSE (no more follow-ups needed)
 CREATE TABLE submissions (
-  submission_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  submission_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_id         TEXT NOT NULL REFERENCES emp(employee_id) ON DELETE CASCADE,
+  agent_user_id       INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  vendor_id           INTEGER REFERENCES vendors(vendor_id) ON DELETE SET NULL,
+  client_name         TEXT,
+  job_title           TEXT,
+  rate                TEXT,                         -- internal: never shown to the employee
+  position_ref        TEXT,                         -- vendor's requirement / job ID
+  vendor_contact_name TEXT,                         -- recruiter at the vendor
+  submitted_on        TEXT NOT NULL,
+  status              TEXT NOT NULL DEFAULT 'SUBMITTED' CHECK (status IN (
+                        'SUBMITTED','ACKNOWLEDGED','SCREENING_SCHEDULED','SCREENING_DONE','CLIENT_INTERVIEW',
+                        'OFFER','PLACED','REJECTED','POSITION_CLOSED','NO_RESPONSE')),
+  last_activity_on    TEXT,                         -- last follow-up / stage change by the agent
+  next_follow_up_on   TEXT,                         -- when the agent plans to follow up next
+  closed_on           TEXT
+);
+
+-- Timeline of every submission: follow-ups, stage changes, employee feedback, update requests
+CREATE TABLE submission_activities (
+  activity_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  submission_id       INTEGER NOT NULL REFERENCES submissions(submission_id) ON DELETE CASCADE,
+  user_id             INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+  activity_type       TEXT NOT NULL CHECK (activity_type IN ('SUBMITTED','FOLLOW_UP','EMPLOYEE_FEEDBACK','UPDATE_REQUEST')),
+  channel             TEXT CHECK (channel IN ('CALL','EMAIL','PORTAL','LINKEDIN','OTHER')),
+  vendor_contact_name TEXT,
+  vendor_feedback     TEXT,                         -- what the vendor said (shown to the employee)
+  note                TEXT,                         -- agent note / employee feedback (shown to the employee)
+  from_status         TEXT,
+  to_status           TEXT,
+  created_at          TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX idx_activities_submission ON submission_activities(submission_id);
+
+-- "Request update" from a bench employee; escalated to Marketing Manager + CEO if not answered in time
+CREATE TABLE update_requests (
+  request_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+  submission_id INTEGER NOT NULL REFERENCES submissions(submission_id) ON DELETE CASCADE,
   employee_id   TEXT NOT NULL REFERENCES emp(employee_id) ON DELETE CASCADE,
-  agent_user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-  vendor_id     INTEGER REFERENCES vendors(vendor_id) ON DELETE SET NULL,
-  client_name   TEXT,
-  job_title     TEXT,
-  rate          TEXT,
-  submitted_on  TEXT NOT NULL,
-  status        TEXT NOT NULL DEFAULT 'SUBMITTED' CHECK (status IN ('SUBMITTED','SHORTLISTED','REJECTED','PLACED'))
+  message       TEXT,
+  requested_on  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  resolved_on   TEXT,                               -- set when the agent logs a follow-up
+  escalated_on  TEXT                                -- set by the daily job
 );
 
 CREATE TABLE interviews (
@@ -231,5 +293,163 @@ CREATE TABLE weekly_status (
   UNIQUE (agent_user_id, week_start)
 );
 
+-- ---------------------------------------------------------------
+-- Finance: bill rates, invoices, payments (see db/migrations/002_finance.sql)
+-- Only the finance API (HR / CEO / ADMIN) reads these. Money in whole cents.
+-- ---------------------------------------------------------------
+-- What the company bills for an assignment. A new rate closes the previous one (history is kept).
+CREATE TABLE billing_rates (
+  rate_id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  work_id            INTEGER NOT NULL REFERENCES work(work_id) ON DELETE CASCADE,
+  bill_rate_cents    INTEGER NOT NULL CHECK (bill_rate_cents > 0),
+  rate_unit          TEXT NOT NULL DEFAULT 'HOUR' CHECK (rate_unit IN ('HOUR','DAY','MONTH')),
+  payment_terms_days INTEGER NOT NULL DEFAULT 30 CHECK (payment_terms_days >= 0),
+  invoice_cycle      TEXT NOT NULL DEFAULT 'MONTHLY' CHECK (invoice_cycle IN ('WEEKLY','BIWEEKLY','SEMIMONTHLY','MONTHLY')),
+  effective_from     TEXT NOT NULL,
+  effective_to       TEXT,
+  notes              TEXT,
+  created_at         TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX idx_billing_rates_work ON billing_rates(work_id);
+
+-- Invoice to the vendor (or the client directly when there is no vendor)
+CREATE TABLE invoices (
+  invoice_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  invoice_number TEXT NOT NULL UNIQUE,
+  work_id        INTEGER REFERENCES work(work_id) ON DELETE SET NULL,
+  employee_id    TEXT NOT NULL REFERENCES emp(employee_id) ON DELETE RESTRICT,
+  vendor_id      INTEGER REFERENCES vendors(vendor_id) ON DELETE RESTRICT,
+  client_id      INTEGER REFERENCES clients(client_id) ON DELETE RESTRICT,
+  period_start   TEXT NOT NULL,
+  period_end     TEXT NOT NULL CHECK (period_end >= period_start),
+  quantity       REAL NOT NULL CHECK (quantity > 0),   -- hours / days / months, per rate_unit
+  rate_unit      TEXT NOT NULL DEFAULT 'HOUR' CHECK (rate_unit IN ('HOUR','DAY','MONTH')),
+  rate_cents     INTEGER NOT NULL CHECK (rate_cents > 0),
+  amount_cents   INTEGER NOT NULL CHECK (amount_cents > 0),
+  invoice_date   TEXT NOT NULL,
+  due_date       TEXT NOT NULL,
+  is_void        INTEGER NOT NULL DEFAULT 0,
+  notes          TEXT,
+  created_by     INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+  created_at     TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX idx_invoices_vendor ON invoices(vendor_id);
+CREATE INDEX idx_invoices_employee ON invoices(employee_id);
+
+CREATE TABLE invoice_payments (
+  payment_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+  invoice_id   INTEGER NOT NULL REFERENCES invoices(invoice_id) ON DELETE CASCADE,
+  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+  paid_on      TEXT NOT NULL,
+  reference    TEXT,                                   -- cheque / ACH / wire reference
+  notes        TEXT,
+  created_by   INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+  created_at   TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX idx_payments_invoice ON invoice_payments(invoice_id);
+
+-- ---------------------------------------------------------------
+-- Timesheets: employee enters daily hours per week, HR approves (see db/migrations/003_timesheets.sql)
+-- ---------------------------------------------------------------
+CREATE TABLE timesheets (
+  timesheet_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_id   TEXT NOT NULL REFERENCES emp(employee_id) ON DELETE CASCADE,
+  work_id       INTEGER NOT NULL REFERENCES work(work_id) ON DELETE CASCADE,
+  week_start    TEXT NOT NULL,                       -- Monday
+  status        TEXT NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT','SUBMITTED','APPROVED','REJECTED')),
+  employee_note TEXT,
+  submitted_at  TEXT,
+  reviewed_by   INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+  reviewed_at   TEXT,
+  review_note   TEXT,                                -- reason when rejected
+  updated_at    TEXT DEFAULT (datetime('now','localtime')),
+  UNIQUE (work_id, week_start)
+);
+CREATE INDEX idx_timesheets_employee ON timesheets(employee_id, week_start);
+CREATE INDEX idx_timesheets_status ON timesheets(status);
+
+CREATE TABLE timesheet_entries (
+  entry_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  timesheet_id INTEGER NOT NULL REFERENCES timesheets(timesheet_id) ON DELETE CASCADE,
+  work_date    TEXT NOT NULL,
+  hours        REAL NOT NULL CHECK (hours >= 0 AND hours <= 24),
+  UNIQUE (timesheet_id, work_date)
+);
+CREATE INDEX idx_entries_date ON timesheet_entries(work_date);
+
+-- Client-approved timesheet copies (see db/migrations/004_timesheet_attachments.sql)
+CREATE TABLE timesheet_attachments (
+  attachment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timesheet_id  INTEGER NOT NULL REFERENCES timesheets(timesheet_id) ON DELETE CASCADE,
+  file_name     TEXT NOT NULL,                       -- original name shown to users
+  file_path     TEXT NOT NULL,                       -- stored name under api-node/uploads/timesheets/
+  content_type  TEXT,
+  size_bytes    INTEGER,
+  uploaded_by   INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+  uploaded_at   TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX idx_ts_attachments ON timesheet_attachments(timesheet_id);
+
+-- One row per (document, threshold) so each expiry reminder is sent once
+CREATE TABLE document_alerts (
+  alert_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  document_id    INTEGER NOT NULL REFERENCES documents(document_id) ON DELETE CASCADE,
+  threshold_days INTEGER NOT NULL,                 -- 180 / 90 / 60 / 30, or 0 = expired
+  created_at     TEXT DEFAULT (datetime('now','localtime')),
+  UNIQUE (document_id, threshold_days)
+);
+
+-- Job postings + notifications (see db/migrations/006_jobs_notifications.sql)
+CREATE TABLE job_postings (
+  posting_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_user_id  INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  title          TEXT NOT NULL,
+  client_name    TEXT,
+  vendor_id      INTEGER REFERENCES vendors(vendor_id) ON DELETE SET NULL,
+  location       TEXT,
+  work_mode      TEXT CHECK (work_mode IN ('ONSITE','HYBRID','REMOTE')),
+  duration       TEXT,                              -- e.g. "12 months, extendable"
+  rate           TEXT,                              -- internal: never shown to employees
+  skills         TEXT,                              -- comma-separated required skills
+  description    TEXT NOT NULL,                     -- job duties
+  status         TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','CLOSED')),
+  created_at     TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX idx_postings_agent ON job_postings(agent_user_id);
+
+CREATE TABLE job_posting_recipients (
+  posting_id    INTEGER NOT NULL REFERENCES job_postings(posting_id) ON DELETE CASCADE,
+  employee_id   TEXT NOT NULL REFERENCES emp(employee_id) ON DELETE CASCADE,
+  match_score   INTEGER,                            -- 0-100 when sent
+  sent_at       TEXT DEFAULT (datetime('now','localtime')),
+  seen_at       TEXT,
+  response      TEXT NOT NULL DEFAULT 'PENDING' CHECK (response IN ('PENDING','INTERESTED','NOT_INTERESTED')),
+  response_note TEXT,
+  responded_at  TEXT,
+  submission_id INTEGER REFERENCES submissions(submission_id) ON DELETE SET NULL,
+  PRIMARY KEY (posting_id, employee_id)
+);
+CREATE INDEX idx_recipients_employee ON job_posting_recipients(employee_id);
+
+-- In-app notifications (bell in the top bar)
+CREATE TABLE notifications (
+  notification_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id         INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  type            TEXT NOT NULL,                    -- JOB_POSTING, JOB_RESPONSE, TIMESHEET_REJECTED, DOCUMENT_REJECTED, SUBMISSION_UPDATE, UPDATE_REQUEST
+  title           TEXT NOT NULL,
+  body            TEXT,
+  link            TEXT,                             -- app path to open, e.g. /my-jobs/12
+  created_at      TEXT DEFAULT (datetime('now','localtime')),
+  read_at         TEXT
+);
+CREATE INDEX idx_notifications_user ON notifications(user_id, read_at);
+
 INSERT INTO roles (role_name) VALUES
-  ('CEO'), ('ADMIN'), ('HR'), ('LEGAL'), ('MARKETING'), ('EMPLOYEE');
+  ('CEO'), ('ADMIN'), ('HR'), ('LEGAL'), ('MARKETING'), ('EMPLOYEE'), ('MARKETING_MANAGER');
+
+-- Migrations already included in this schema (see db/migrations/)
+CREATE TABLE schema_migrations (
+  version    TEXT PRIMARY KEY,
+  applied_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO schema_migrations (version) VALUES ('001_submission_followups'), ('002_finance'), ('003_timesheets'), ('004_timesheet_attachments'), ('005_employee_documents'), ('006_jobs_notifications');
