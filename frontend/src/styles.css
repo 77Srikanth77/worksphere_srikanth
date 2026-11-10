@@ -37,7 +37,20 @@ a { color: var(--accent); }
 /* Shell */
 .topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px; padding: 12px 24px;
   background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
-.brand { font-weight: 700; font-size: 1.1rem; }
+.brand { display: flex; flex-direction: column; gap: 2px; line-height: 1.2; }
+.brand-name { font-weight: 700; font-size: 1.1rem; }
+.shell { min-height: 100vh; display: flex; flex-direction: column; }
+.shell .content { flex: 1; width: 100%; }
+
+/* Company branding */
+.powered-by { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.8rem; }
+.powered-by strong { color: var(--fg); font-weight: 600; }
+.company-logo { height: 20px; width: auto; display: block; }
+.powered-by.compact { font-size: 0.72rem; gap: 5px; }
+.powered-by.compact .company-logo { height: 16px; }
+.brand-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 16px;
+  padding: 14px 24px; border-top: 1px solid var(--line); background: var(--surface); color: var(--muted); font-size: 0.78rem; }
+.login-logo { height: 44px; width: auto; align-self: flex-start; margin-bottom: 4px; }
 .topbar nav { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; }
 .topbar nav a { padding: 6px 12px; border-radius: 6px; color: var(--muted); text-decoration: none; }
 .topbar nav a.active, .topbar nav a:hover { background: var(--bg); color: var(--fg); }
@@ -97,7 +110,8 @@ button.link { background: none; border: none; color: var(--accent); padding: 0; 
 button:disabled { opacity: 0.6; cursor: wait; }
 
 /* Login */
-.login-page { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.login-page { min-height: 100vh; display: grid; grid-template-rows: 1fr auto; place-items: center; padding: 16px 16px 0; }
+.login-page .brand-footer { width: 100%; background: transparent; border-top: none; }
 .login-card { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 10px; }
 .login-card h1 { margin: 0; }
 .login-card button { margin-top: 8px; }

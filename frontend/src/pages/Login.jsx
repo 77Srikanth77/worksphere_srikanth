@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { HOME_BY_ROLE, useAuth } from '../auth';
+import { BrandFooter, CompanyLogo } from '../branding';
 
 export default function Login() {
   const { login } = useAuth();
@@ -27,6 +28,7 @@ export default function Login() {
   return (
     <div className="login-page">
       <form className="card login-card" onSubmit={submit}>
+        <CompanyLogo className="login-logo" />
         <h1>WorkSphere</h1>
         <p className="muted">Workforce compliance and performance</p>
         <label htmlFor="email">Email</label>
@@ -37,6 +39,7 @@ export default function Login() {
         <button type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
         <p className="hint">Demo: ceo@, hr@, legal@, marketing@example.com or arjun.patel@example.com · Password@123</p>
       </form>
+      <BrandFooter />
     </div>
   );
 }

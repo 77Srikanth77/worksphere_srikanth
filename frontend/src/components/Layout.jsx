@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
+import { BrandFooter, PoweredBy } from '../branding';
 
 // Menu items per role. ADMIN sees all of them.
 const NAV = [
@@ -19,7 +20,10 @@ export default function Layout() {
   return (
     <div className="shell">
       <header className="topbar">
-        <div className="brand">WorkSphere</div>
+        <div className="brand">
+          <span className="brand-name">WorkSphere</span>
+          <PoweredBy className="compact" />
+        </div>
         <nav>
           {items.map((n) => (
             <NavLink key={n.to} to={n.to} className={({ isActive }) => (isActive ? 'active' : '')}>
@@ -36,6 +40,7 @@ export default function Layout() {
       <main className="content">
         <Outlet />
       </main>
+      <BrandFooter />
     </div>
   );
 }
