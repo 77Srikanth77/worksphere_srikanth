@@ -1,0 +1,27 @@
+{
+  "name": "worksphere-api-node",
+  "version": "1.0.0",
+  "description": "WorkSphere REST API (Express + SQLite)",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "set-passwords": "node scripts/set-passwords.js",
+    "db:reset": "rm -f ../db/worksphere.db ../db/worksphere.db-wal ../db/worksphere.db-shm && sqlite3 ../db/worksphere.db < ../db/schema.sql && sqlite3 ../db/worksphere.db < ../db/seed.sql && node scripts/set-passwords.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

@@ -218,3 +218,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- WorkSphere: Node / React ---
+node_modules/
+frontend/dist/
+api-node/uploads/*
+!api-node/uploads/.gitkeep
+npm-debug.log*
+.DS_Store
+
+# --- WorkSphere: SQLite database (rebuild with `npm run db:reset` in api-node) ---
+db/*.db
+db/*.db-wal
+db/*.db-shm
