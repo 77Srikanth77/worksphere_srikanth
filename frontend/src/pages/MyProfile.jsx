@@ -68,9 +68,11 @@ export default function MyProfile() {
           <div><span>Client</span>{cur.client_name || '—'}</div>
           <div><span>Vendor</span>{cur.vendor_name || '—'}</div>
           <div><span>Project</span>{cur.project_name || '—'}</div>
-          <div><span>Role</span>{cur.job_title || '—'}</div>
+          <div><span>Job title</span>{cur.job_title || '—'}</div>
           <div><span>Location</span>{[cur.work_location, cur.city, cur.state].filter(Boolean).join(', ')}</div>
           <div><span>Since</span>{fmtDate(cur.start_date)}</div>
+          {cur.client_manager_name && <div><span>Reporting manager</span>{cur.client_manager_name}{cur.client_manager_title ? ` · ${cur.client_manager_title}` : ''}</div>}
+          {cur.worksite_address && <div><span>Worksite</span>{[cur.worksite_address, cur.worksite_zip].filter(Boolean).join(' ')}</div>}
           <div className="wide"><span>Present job duties</span>{cur.job_duties || '—'}</div>
         </section>
       )}
@@ -80,6 +82,7 @@ export default function MyProfile() {
           <h3 className="wide">My marketing</h3>
           <div><span>Marketing agent</span>{p.data.marketing_agent?.full_name || 'Not assigned yet'}</div>
           <div><span>Agent email</span>{p.data.marketing_agent?.email || '—'}</div>
+          <div><span>Job title</span>{cur?.job_title || '—'}</div>
           <div className="wide"><span>Current activity</span>{cur?.job_duties || '—'}</div>
         </section>
       )}
@@ -113,8 +116,8 @@ export default function MyProfile() {
         <Table rows={past} empty="No past assignments." columns={[
           { key: 'dates', label: 'Dates', render: (r) => `${fmtDate(r.start_date)} – ${fmtDate(r.end_date)}` },
           { key: 'client_name', label: 'Client' },
+          { key: 'job_title', label: 'Job title' },
           { key: 'project_name', label: 'Project' },
-          { key: 'job_title', label: 'Role' },
           { key: 'job_duties', label: 'Duties' },
         ]} />
       </section>

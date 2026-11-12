@@ -2,6 +2,7 @@ const express = require('express');
 const { query } = require('../db');
 const { authorize } = require('../middleware/auth');
 const { pick, buildInsert, buildUpdate, asyncHandler } = require('../utils/helpers');
+const { redactWork } = require('../utils/lca');
 
 const router = express.Router();
 
@@ -66,7 +67,13 @@ router.get('/:id', authorize(...READ), asyncHandler(async (req, res) => {
            JOIN users u ON u.user_id = ma.agent_user_id
            WHERE ma.employee_id = ? ORDER BY ma.is_active DESC, ma.assigned_on DESC, ma.assignment_id DESC`, [id]),
   ]);
-  res.json({ ...emp, work, immigration, trainings, interviews, marketing_assignments: marketing });
+  // Open LCA change reviews per assignment (HR / Legal / CEO see the "pending Legal" warning on the assignment)
+  const lcaReviews = ['ADMIN', 'CEO', 'HR', 'LEGAL'].includes(req.user.role)
+    ? await query(`SELECT review_id, work_id, suggestion, status, changes, reasons, created_at FROM lca_reviews
+                   WHERE employee_id = ? AND status IN ('OPEN','AMENDMENT_REQUIRED','POSTING_REQUIRED') ORDER BY review_id DESC`, [id])
+    : [];
+  res.json({ ...emp, work: work.map((w) => redactWork(w, req.user.role)), immigration, trainings, interviews, marketing_assignments: marketing,
+    lca_reviews: lcaReviews.map((r) => ({ ...r, changes: JSON.parse(r.changes), reasons: JSON.parse(r.reasons) })) });
 }));
 
 router.post('/', authorize(...WRITE), asyncHandler(async (req, res) => {

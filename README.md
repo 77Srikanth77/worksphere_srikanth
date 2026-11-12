@@ -33,7 +33,7 @@ SQLite file – db/worksphere.db        both services read and write (WAL mode)
 | CEO | Dashboard | Headcount, project vs bench, expiring visas, agent performance, Finance (read-only) |
 | ADMIN | Dashboard | Everything, plus user management (`/api/users`) |
 | HR | Employees | Add/edit employees, work assignments, searchable/filterable employee list with CSV export; Finance: bill rates, invoices, payments, vendor balances |
-| LEGAL | Immigration | Visa/LCA register with each case's document status, alert inbox, case status, "Run alert check now"; Documents: every employee's passport, visa, I-94, I-797, LCA, EAD… (view, upload, verify) |
+| LEGAL | Immigration | Employee record: each project's worksite address, reporting manager at the client and LCA case number + wage (Legal/HR edit); visa/LCA register with each case's document status, alert inbox, case status, "Run alert check now"; Documents: every employee's passport, visa, I-94, I-797, LCA, EAD… (view, upload, verify) |
 | MARKETING | My Marketing | Assigned employees, submissions with follow-up due/overdue flags, vendor follow-up log, employee update requests, weekly status |
 | MARKETING_MANAGER | Marketing Team | Agent scorecard, overdue follow-ups across all agents, escalated employee update requests; assigns bench employees to agents |
 | EMPLOYEE | My Profile, My Timesheets | Bio, hire date, client, past/present duties, trainings, interviews; bench employees also see every submission's stage, agent notes and vendor feedback, can request an update and add their own feedback. Employees on a project enter daily hours each week and submit them for approval |
@@ -118,6 +118,24 @@ Sign in as **legal@example.com** and click **Run alert check now** to create the
 4. New alerts are emailed to active users with the roles in `ALERT_ROLES` (default LEGAL and CEO)
    and appear on the Immigration page.
 5. When Legal sets the case to FILED or RENEWED, the reminders stop.
+
+## Import from Excel (HR, Legal)
+
+The **Import** page fills WorkSphere from a spreadsheet. Each team imports what it owns:
+
+| Import | Who | Matched on |
+|---|---|---|
+| Employees | HR | Employee ID |
+| Work assignments (client, vendor, dates, location, client manager) | HR | Employee ID + start date |
+| Visa & LCA records | HR, Legal | Employee ID + receipt # (or visa type) |
+| Assignment legal details (duties, worksite, client manager, LCA case # and wage) | HR, Legal | Employee ID (+ assignment start date, else current project) |
+
+1. Download the template (Data sheet with headers, dropdowns for fixed values, an Instructions sheet), or use your own sheet:
+   headers are matched loosely ("Emp ID", "DOJ", "Reporting manager", "LCA amount" all work); unknown columns are ignored.
+2. Upload .xlsx or .csv (≤ 5 MB, ≤ 2,000 rows). Every row is checked and shown as New / Update / Error with the reason; nothing is saved yet.
+   Dates can be Excel dates, YYYY-MM-DD or MM/DD/YYYY; ZIP codes that lost their leading zero are fixed; new client/vendor names are added.
+3. Import. The server checks every row again, saves all valid rows in one transaction (optionally skipping rows with errors) and logs
+   who imported which file. When updating, empty cells keep the saved value, so a sheet may hold just the columns being changed.
 
 ## Job postings and notifications
 
@@ -232,6 +250,10 @@ or closes as `Rejected`, `Position closed` or `No response`.
 | `POST /jobs/match`, `GET,POST /jobs`, `GET /jobs/:id`, `POST /jobs/:id/recipients`, `POST /jobs/:id/recipients/:employeeId/submit`, `PATCH /jobs/:id/status` | MARKETING (own), MARKETING_MANAGER |
 | `GET /jobs/mine`, `GET /jobs/:id`, `POST /jobs/:id/respond` | EMPLOYEE (postings sent to them) |
 | `GET /notifications`, `POST /notifications/:id/read`, `/notifications/read-all` | any signed-in user (own) |
+| `PATCH /work/:id/details` (duties, worksite, client manager, LCA) | HR, LEGAL |
+| `GET /work/:id/delete-check`, `DELETE /work/:id` (reason required; blocked if invoiced or timesheets submitted/approved; audit-logged) | CEO, ADMIN |
+| `GET /work/deleted/:employeeId` | CEO, HR, ADMIN |
+| `GET /imports/types`, `/imports/:type/template`, `/imports/history`, `POST /imports/:type/preview` (multipart), `/imports/:type/commit` | HR (all types), LEGAL (visa/LCA, assignment legal details) |
 | `GET,POST /users` | ADMIN |
 | `GET /documents/compliance`, `/documents/queue`, `/documents/checklist/:employeeId` | HR, LEGAL, CEO |
 | `POST /documents` (multipart), `PATCH /documents/:id`, `/documents/:id/review` | HR, LEGAL (MARKETING: résumés only) |

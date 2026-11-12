@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { api, fmtDate } from '../api';
 import { DaysLeft, Loading, StatusPill, Table, useApi } from '../components/ui';
 import { DocState } from '../components/DocumentVault';
+import H1BCapCases from '../components/H1BCapCases';
+import LcaChanges from '../components/LcaChanges';
 
 const CASE_STATUSES = ['ACTIVE', 'IN_PROGRESS', 'FILED', 'RENEWED', 'EXPIRED'];
 const EMPTY = {
@@ -16,6 +18,12 @@ export default function Immigration() {
   const { user } = useAuth();
   const canEdit = ['LEGAL', 'HR', 'ADMIN'].includes(user.role);
   const canRun = ['LEGAL', 'ADMIN'].includes(user.role);
+  // Tab lives in the URL (?tab=changes) so notifications and Home can link straight to it
+  const [params, setParams] = useSearchParams();
+  const tab = ['register', 'cap', 'changes'].includes(params.get('tab')) ? params.get('tab') : 'register';
+  const setTab = (t) => setParams(t === 'register' ? {} : { tab: t }, { replace: true });
+  const lcaSummary = useApi('/lca-reviews/summary');
+  const lcaToDo = lcaSummary.data ? lcaSummary.data.awaiting_decision + lcaSummary.data.amendment_to_file + lcaSummary.data.posting_to_do : 0;
   const [within, setWithin] = useState('');
   const visas = useApi(`/immigration${within ? `?within=${within}` : ''}`);
   const alerts = useApi('/alerts?unread=true');
@@ -75,14 +83,13 @@ export default function Immigration() {
         <h2>Immigration & compliance</h2>
         <div className="actions">
           {canRun && <button className="secondary" onClick={runCheck}>Run alert check now</button>}
-          {canEdit && <button onClick={() => setForm({ ...EMPTY })}>Add visa record</button>}
         </div>
       </div>
       {message && <p className="notice-box">{message}</p>}
 
+      {alerts.data?.length > 0 && (
       <section className="card alert-card">
-        <h3>Unread alerts {alerts.data?.length ? <span className="pill critical">{alerts.data.length}</span> : null}</h3>
-        <Loading {...alerts} />
+        <h3>Unread alerts <span className="pill critical">{alerts.data.length}</span></h3>
         <Table
           rows={alerts.data}
           empty="No unread alerts."
@@ -95,6 +102,18 @@ export default function Immigration() {
           ]}
         />
       </section>
+      )}
+      <Loading {...alerts} />
+
+      <div className="tabs" role="tablist">
+        <button role="tab" aria-selected={tab === 'register'} onClick={() => setTab('register')}>Visas &amp; LCAs{visas.data ? ` (${visas.data.length})` : ''}</button>
+        <button role="tab" aria-selected={tab === 'cap'} onClick={() => setTab('cap')}>H-1B cap cases</button>
+        <button role="tab" aria-selected={tab === 'changes'} onClick={() => setTab('changes')}>
+          LCA changes {lcaToDo > 0 && <span className="pill critical tab-count">{lcaToDo}</span>}
+        </button>
+      </div>
+
+      {tab === 'register' && <>
 
       {form && (
         <form className="card form-grid" onSubmit={save}>
@@ -125,6 +144,12 @@ export default function Immigration() {
       <section className="card">
         <div className="page-head">
           <h3>Visa & LCA register</h3>
+          {canEdit && (
+            <div className="actions">
+              <Link className="button secondary" to="/import?type=IMMIGRATION">Import from Excel</Link>
+              <button onClick={() => setForm({ ...EMPTY })}>Add visa record</button>
+            </div>
+          )}
           <select id="within" value={within} onChange={(e) => setWithin(e.target.value)}>
             <option value="">All records</option>
             <option value="30">Expiring in 30 days</option>
@@ -164,6 +189,10 @@ export default function Immigration() {
           ]}
         />
       </section>
+      </>}
+
+      {tab === 'cap' && <H1BCapCases canEdit={canEdit} />}
+      {tab === 'changes' && <LcaChanges role={user.role} />}
     </>
   );
 }

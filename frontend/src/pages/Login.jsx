@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { HOME_BY_ROLE, useAuth } from '../auth';
-import { BrandFooter, CompanyLogo } from '../branding';
+import { BrandFooter, FullBanner } from '../branding';
 
 export default function Login() {
   const { login } = useAuth();
@@ -28,7 +28,7 @@ export default function Login() {
   return (
     <div className="login-page">
       <form className="card login-card" onSubmit={submit}>
-        <CompanyLogo className="login-logo" />
+        <FullBanner />
         <h1>WorkSphere</h1>
         <p className="muted">Workforce compliance and performance</p>
         <label htmlFor="email">Email</label>

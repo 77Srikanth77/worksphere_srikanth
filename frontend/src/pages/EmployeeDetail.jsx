@@ -4,11 +4,13 @@ import { useAuth } from '../auth';
 import { api, fmtDate, fmtMoney, fmtRate } from '../api';
 import { DaysLeft, Loading, StatusPill, Table, useApi } from '../components/ui';
 import DocumentVault from '../components/DocumentVault';
+import AssignmentCard from '../components/AssignmentCard';
 import ResumeCard from '../components/ResumeCard';
 
 const EMPTY_WORK = {
   status: 'PROJECT', client_id: '', vendor_id: '', project_name: '', job_title: '', job_duties: '',
   work_location: '', city: '', state: '', start_date: '', end_date: '',
+  worksite_address: '', worksite_zip: '', client_manager_name: '', client_manager_title: '', client_manager_email: '', client_manager_phone: '',
 };
 
 const CYCLE = { WEEKLY: 'Weekly', BIWEEKLY: 'Every 2 weeks', SEMIMONTHLY: 'Twice a month', MONTHLY: 'Monthly' };
@@ -235,6 +237,7 @@ export default function EmployeeDetail() {
   const { id } = useParams();
   const { user } = useAuth();
   const emp = useApi(`/employees/${id}`);
+  const deleted = useApi(['CEO', 'HR', 'ADMIN'].includes(user.role) ? `/work/deleted/${id}` : null);
   const canEdit = ['HR', 'ADMIN'].includes(user.role);
   const clients = useApi(canEdit ? '/clients' : null);
   const vendors = useApi(canEdit ? '/vendors' : null);
@@ -255,14 +258,11 @@ export default function EmployeeDetail() {
     }
   };
 
-  const endAssignment = async (workId) => {
-    await api(`/work/${workId}`, { method: 'PUT', body: { end_date: new Date().toISOString().slice(0, 10) } });
-    emp.reload();
-  };
-
   if (!emp.data) return <Loading {...emp} />;
   const e = emp.data;
   const setW = (k) => (ev) => setWork({ ...work, [k]: ev.target.value });
+  const showLca = ['HR', 'LEGAL', 'CEO', 'ADMIN'].includes(user.role);
+  const isH1B = (e.immigration || []).some((v) => String(v.visa_type).toUpperCase().replace(/[^A-Z0-9]/g, '').startsWith('H1B'));
 
   return (
     <>
@@ -298,10 +298,16 @@ export default function EmployeeDetail() {
                 <option value="">—</option>{vendors.data?.map((v) => <option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>)}
               </select></div>
             <div className="field"><label htmlFor="w-project">Project</label><input id="w-project" value={work.project_name} onChange={setW('project_name')} /></div>
-            <div className="field"><label htmlFor="w-title">Job title</label><input id="w-title" value={work.job_title} onChange={setW('job_title')} /></div>
+            <div className="field"><label htmlFor="w-title">Job title *</label><input id="w-title" value={work.job_title} onChange={setW('job_title')} required placeholder="e.g. Data Engineer" /></div>
             <div className="field"><label htmlFor="w-loc">Work location</label><input id="w-loc" value={work.work_location} onChange={setW('work_location')} placeholder="Client site / Remote / Office" /></div>
             <div className="field"><label htmlFor="w-city">City</label><input id="w-city" value={work.city} onChange={setW('city')} /></div>
             <div className="field"><label htmlFor="w-state">State</label><input id="w-state" value={work.state} onChange={setW('state')} /></div>
+            <div className="field wide"><label htmlFor="w-addr">Worksite address</label><input id="w-addr" value={work.worksite_address} onChange={setW('worksite_address')} placeholder="Street, floor / suite" /></div>
+            <div className="field"><label htmlFor="w-zip">ZIP</label><input id="w-zip" value={work.worksite_zip} onChange={setW('worksite_zip')} /></div>
+            <div className="field"><label htmlFor="w-mgr">Client reporting manager</label><input id="w-mgr" value={work.client_manager_name} onChange={setW('client_manager_name')} /></div>
+            <div className="field"><label htmlFor="w-mgrt">Manager title</label><input id="w-mgrt" value={work.client_manager_title} onChange={setW('client_manager_title')} /></div>
+            <div className="field"><label htmlFor="w-mgre">Manager email</label><input id="w-mgre" type="email" value={work.client_manager_email} onChange={setW('client_manager_email')} /></div>
+            <div className="field"><label htmlFor="w-mgrp">Manager phone</label><input id="w-mgrp" value={work.client_manager_phone} onChange={setW('client_manager_phone')} /></div>
             <div className="field"><label htmlFor="w-start">Start date *</label><input id="w-start" type="date" value={work.start_date} onChange={setW('start_date')} required /></div>
             <div className="field"><label htmlFor="w-end">End date</label><input id="w-end" type="date" value={work.end_date} onChange={setW('end_date')} /></div>
             <div className="field wide"><label htmlFor="w-duties">Job duties</label><textarea id="w-duties" rows={3} value={work.job_duties} onChange={setW('job_duties')} /></div>
@@ -309,20 +315,24 @@ export default function EmployeeDetail() {
             <div className="actions wide"><button type="submit">Save assignment</button></div>
           </form>
         )}
-        <Table
-          rows={e.work}
-          columns={[
-            { key: 'status', label: 'Status', render: (r) => <StatusPill value={r.status} /> },
-            { key: 'client_name', label: 'Client' },
-            { key: 'vendor_name', label: 'Vendor' },
-            { key: 'project_name', label: 'Project' },
-            { key: 'job_title', label: 'Title' },
-            { key: 'job_duties', label: 'Duties' },
-            { key: 'loc', label: 'Location', render: (r) => [r.work_location, r.city, r.state].filter(Boolean).join(', ') || '—' },
-            { key: 'dates', label: 'Dates', render: (r) => `${fmtDate(r.start_date)} – ${r.end_date ? fmtDate(r.end_date) : 'Present'}` },
-            ...(canEdit ? [{ key: 'x', label: '', render: (r) => (!r.end_date ? <button className="link" onClick={() => endAssignment(r.work_id)}>End today</button> : null) }] : []),
-          ]}
-        />
+        {showLca && <p className="hint">LCA wage and case number are visible to Legal, HR, the CEO and the employee only. Legal and HR can edit the location, client manager and LCA of each project.</p>}
+        {e.work.length === 0 && <p className="muted">No assignments yet.</p>}
+        <div className="assignments">
+          {e.work.map((w) => (
+            <AssignmentCard key={w.work_id} w={w} isH1B={isH1B} showLca={showLca} reviews={(e.lca_reviews || []).filter((r) => r.work_id === w.work_id)} onChanged={() => { emp.reload(); deleted.reload(); }}
+              canEditDetails={['HR', 'LEGAL', 'ADMIN'].includes(user.role)} canEnd={canEdit} canDelete={['CEO', 'ADMIN'].includes(user.role)} />
+          ))}
+        </div>
+        {deleted.data?.length > 0 && (
+          <details className="history">
+            <summary>Deleted assignments ({deleted.data.length})</summary>
+            <Table rows={deleted.data} columns={[
+              { key: 'what', label: 'Assignment', render: (d) => `${d.client_name || d.status} · ${fmtDate(d.start_date)} – ${d.end_date ? fmtDate(d.end_date) : 'open'}` },
+              { key: 'reason', label: 'Reason' },
+              { key: 'deleted_by', label: 'Deleted by', render: (d) => `${d.deleted_by || '—'} · ${fmtDate(d.created_at)}` },
+            ]} />
+          </details>
+        )}
       </section>
 
       {['HR', 'CEO', 'ADMIN'].includes(user.role) && <BillingCard employeeId={id} work={e.work} onWorkChange={emp.reload} />}

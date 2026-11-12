@@ -89,6 +89,7 @@ export default function Employees() {
         <h2>Employees</h2>
         <div className="actions">
           <button className="secondary" onClick={download} disabled={!rows.length}>Export CSV</button>
+          {canEdit && <Link className="button secondary" to="/import?type=EMPLOYEES">Import from Excel</Link>}
           {canEdit && <Link className="button" to="/employees/new">Add employee</Link>}
         </div>
       </div>

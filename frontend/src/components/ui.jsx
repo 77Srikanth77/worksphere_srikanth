@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 
 /** Loads `path` from the API. Returns { data, error, loading, reload }. */
@@ -81,8 +81,11 @@ export function Loading({ error, loading }) {
   return null;
 }
 
-/** Simple table. columns: [{ key, label, render?(row) }] */
-export function Table({ columns, rows, empty = 'Nothing here yet.' }) {
+/**
+ * Simple table. columns: [{ key, label, render?(row) }]
+ * renderBelow(row) -> optional content (e.g. a form) shown in a full-width row right under that row.
+ */
+export function Table({ columns, rows, empty = 'Nothing here yet.', renderBelow }) {
   if (!rows?.length) return <p className="muted">{empty}</p>;
   return (
     <div className="table-wrap">
@@ -91,11 +94,17 @@ export function Table({ columns, rows, empty = 'Nothing here yet.' }) {
           <tr>{columns.map((c) => <th key={c.key}>{c.label}</th>)}</tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
-            <tr key={r.id ?? i}>
-              {columns.map((c) => <td key={c.key}>{c.render ? c.render(r) : r[c.key] ?? '—'}</td>)}
-            </tr>
-          ))}
+          {rows.map((r, i) => {
+            const below = renderBelow ? renderBelow(r) : null;
+            return (
+              <Fragment key={r.id ?? i}>
+                <tr className={below ? 'row-open' : undefined}>
+                  {columns.map((c) => <td key={c.key}>{c.render ? c.render(r) : r[c.key] ?? '—'}</td>)}
+                </tr>
+                {below && <tr className="row-below"><td colSpan={columns.length}>{below}</td></tr>}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
     </div>

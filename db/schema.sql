@@ -13,6 +13,10 @@
 PRAGMA journal_mode = WAL;   -- lets the Node API and the Python service use the file at the same time
 PRAGMA foreign_keys = OFF;
 
+DROP TABLE IF EXISTS lca_reviews;
+DROP TABLE IF EXISTS h1b_cap_cases;
+DROP TABLE IF EXISTS audit_log;
+DROP TABLE IF EXISTS import_log;
 DROP TABLE IF EXISTS notifications;
 DROP TABLE IF EXISTS job_posting_recipients;
 DROP TABLE IF EXISTS job_postings;
@@ -126,9 +130,31 @@ CREATE TABLE work (
   status        TEXT NOT NULL DEFAULT 'PROJECT' CHECK (status IN ('PROJECT','BENCH')),
   start_date    TEXT NOT NULL,
   end_date      TEXT,
-  client_timesheet_required INTEGER NOT NULL DEFAULT 0   -- vendor/client wants a client-approved timesheet each week
+  client_timesheet_required INTEGER NOT NULL DEFAULT 0,  -- vendor/client wants a client-approved timesheet each week
+  worksite_address     TEXT,                              -- street address of the client worksite
+  worksite_zip         TEXT,
+  client_manager_name  TEXT,                              -- who the employee reports to at the client
+  client_manager_title TEXT,
+  client_manager_email TEXT,
+  client_manager_phone TEXT,
+  lca_case_number      TEXT,                              -- certified LCA covering this worksite
+  lca_wage_cents       INTEGER CHECK (lca_wage_cents IS NULL OR lca_wage_cents > 0),  -- wage on the LCA (Legal/HR/CEO only)
+  lca_wage_unit        TEXT CHECK (lca_wage_unit IS NULL OR lca_wage_unit IN ('YEAR','HOUR'))
 );
 CREATE INDEX idx_work_emp ON work(employee_id);
+
+-- Job title required on every assignment (see db/migrations/011_work_job_title_required.sql)
+CREATE TRIGGER trg_work_title_insert BEFORE INSERT ON work
+WHEN trim(coalesce(NEW.job_title, '')) = ''
+BEGIN
+  SELECT RAISE(ABORT, 'Job title is required for every assignment.');
+END;
+
+CREATE TRIGGER trg_work_title_update BEFORE UPDATE OF job_title ON work
+WHEN trim(coalesce(NEW.job_title, '')) = ''
+BEGIN
+  SELECT RAISE(ABORT, 'Job title is required for every assignment.');
+END;
 
 -- ---------------------------------------------------------------
 -- IMMIGRATION: visa + LCA details per employee
@@ -444,12 +470,99 @@ CREATE TABLE notifications (
 );
 CREATE INDEX idx_notifications_user ON notifications(user_id, read_at);
 
+-- Excel import audit trail (see db/migrations/008_import_log.sql)
+CREATE TABLE import_log (
+  import_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+  import_type  TEXT NOT NULL,                       -- EMPLOYEES, WORK, IMMIGRATION, WORK_DETAILS
+  file_name    TEXT,
+  created      INTEGER NOT NULL DEFAULT 0,
+  updated      INTEGER NOT NULL DEFAULT 0,
+  skipped      INTEGER NOT NULL DEFAULT 0,
+  details      TEXT,                                -- JSON: row-level summary (row number, action, key)
+  imported_by  INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+  imported_at  TEXT DEFAULT (datetime('now','localtime'))
+);
+
+-- Deletion audit trail (see db/migrations/009_audit_log.sql)
+CREATE TABLE audit_log (
+  audit_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity       TEXT NOT NULL,                       -- e.g. WORK
+  entity_id    TEXT NOT NULL,
+  employee_id  TEXT,                                -- whose record it was (kept even if the employee is removed later)
+  action       TEXT NOT NULL,                       -- DELETE
+  reason       TEXT NOT NULL,
+  snapshot     TEXT NOT NULL,                       -- JSON copy of the record (and what was removed with it)
+  user_id      INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+  created_at   TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX idx_audit_employee ON audit_log(employee_id);
+
+-- H-1B cap cases (see db/migrations/010_h1b_cap_cases.sql)
+-- People are kept by name because many are filed for before they have an employee record;
+-- employee_id links the case once they do (the register also matches on first + last name).
+CREATE TABLE h1b_cap_cases (
+  case_id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  cap_year          TEXT NOT NULL CHECK (cap_year GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),  -- filing season, e.g. 2026-27
+  first_name        TEXT NOT NULL,
+  last_name         TEXT NOT NULL,
+  employee_id       TEXT REFERENCES emp(employee_id) ON DELETE SET NULL,
+  on_project        INTEGER NOT NULL DEFAULT 0 CHECK (on_project IN (0, 1)),            -- "Project" Yes / No
+  vendor_name       TEXT,
+  client_name       TEXT,
+  job_title         TEXT,
+  lca_wage_cents    INTEGER CHECK (lca_wage_cents IS NULL OR lca_wage_cents > 0),         -- "LCA Amount"
+  lca_wage_unit     TEXT NOT NULL DEFAULT 'YEAR' CHECK (lca_wage_unit IN ('YEAR', 'HOUR')),
+  work_mode         TEXT CHECK (work_mode IS NULL OR work_mode IN ('REMOTE', 'CLIENT_SITE', 'HYBRID')),
+  lca_location      TEXT,                                                                  -- city/state or worksite address
+  receipt_number    TEXT,
+  case_status       TEXT NOT NULL DEFAULT 'FILED'
+                    CHECK (case_status IN ('REGISTERED', 'SELECTED', 'FILED', 'RFE', 'APPROVED', 'DENIED', 'WITHDRAWN')),
+  employment_status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (employment_status IN ('ACTIVE', 'LEFT')),
+  notes             TEXT,
+  created_at        TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at        TEXT DEFAULT CURRENT_TIMESTAMP,
+  visa_id           INTEGER REFERENCES immigration(visa_id) ON DELETE SET NULL  -- set on approval (migration 012)
+);
+CREATE UNIQUE INDEX ux_cap_case_person ON h1b_cap_cases(cap_year, lower(trim(first_name)), lower(trim(last_name)));
+CREATE INDEX idx_cap_case_employee ON h1b_cap_cases(employee_id);
+
+CREATE TRIGGER trg_cap_case_updated AFTER UPDATE ON h1b_cap_cases
+BEGIN
+  UPDATE h1b_cap_cases SET updated_at = CURRENT_TIMESTAMP WHERE case_id = NEW.case_id;
+END;
+
 INSERT INTO roles (role_name) VALUES
   ('CEO'), ('ADMIN'), ('HR'), ('LEGAL'), ('MARKETING'), ('EMPLOYEE'), ('MARKETING_MANAGER');
+
+-- LCA change reviews (see db/migrations/013_lca_reviews.sql)
+CREATE TABLE lca_reviews (
+  review_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_id        TEXT NOT NULL REFERENCES emp(employee_id) ON DELETE CASCADE,
+  work_id            INTEGER REFERENCES work(work_id) ON DELETE SET NULL,
+  change_kind        TEXT NOT NULL CHECK (change_kind IN ('NEW_ASSIGNMENT', 'ASSIGNMENT_CHANGE')),
+  changes            TEXT NOT NULL,                 -- JSON [{ field, label, from, to }]
+  suggestion         TEXT NOT NULL CHECK (suggestion IN ('AMENDMENT_LIKELY', 'CHECK', 'POSTING')),
+  reasons            TEXT NOT NULL,                 -- JSON [text]
+  status             TEXT NOT NULL DEFAULT 'OPEN'
+                     CHECK (status IN ('OPEN', 'AMENDMENT_REQUIRED', 'AMENDMENT_FILED', 'POSTING_REQUIRED', 'POSTING_DONE', 'NO_ACTION')),
+  decision_note      TEXT,                          -- Legal's reason (kept for audits)
+  new_lca_number     TEXT,
+  amendment_receipt  TEXT,
+  amendment_filed_on TEXT,
+  posting_location   TEXT,
+  posted_on          TEXT,
+  raised_by          INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+  decided_by         INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+  decided_at         TEXT,
+  created_at         TEXT DEFAULT (datetime('now','localtime')),
+  updated_at         TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX idx_lca_reviews_status ON lca_reviews(status);
+CREATE INDEX idx_lca_reviews_work ON lca_reviews(work_id);
 
 -- Migrations already included in this schema (see db/migrations/)
 CREATE TABLE schema_migrations (
   version    TEXT PRIMARY KEY,
   applied_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
-INSERT INTO schema_migrations (version) VALUES ('001_submission_followups'), ('002_finance'), ('003_timesheets'), ('004_timesheet_attachments'), ('005_employee_documents'), ('006_jobs_notifications');
+INSERT INTO schema_migrations (version) VALUES ('001_submission_followups'), ('002_finance'), ('003_timesheets'), ('004_timesheet_attachments'), ('005_employee_documents'), ('006_jobs_notifications'), ('007_work_site_manager_lca'), ('008_import_log'), ('009_audit_log'), ('010_h1b_cap_cases'), ('011_work_job_title_required'), ('012_cap_case_visa'), ('013_lca_reviews');

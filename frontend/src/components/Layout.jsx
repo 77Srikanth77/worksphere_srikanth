@@ -1,6 +1,6 @@
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
-import { BrandFooter, PoweredBy } from '../branding';
+import { BrandBanner, BrandFooter } from '../branding';
 import { navFor } from '../nav';
 import NotificationBell from './NotificationBell';
 
@@ -11,10 +11,10 @@ export default function Layout() {
 
   return (
     <div className="shell">
+      <BrandBanner />
       <header className="topbar">
         <Link to="/home" className="brand" aria-label="WorkSphere home" title="Home">
           <span className="brand-name">WorkSphere</span>
-          <PoweredBy className="compact" />
         </Link>
         <nav>
           {items.map((n) => (

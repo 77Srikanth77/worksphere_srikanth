@@ -5,11 +5,13 @@ const { pick, buildInsert, buildUpdate, asyncHandler } = require('./helpers');
 
 /**
  * Builds a standard list / get / create / update / delete router for a table.
- * options: { table, id, columns, readRoles, writeRoles, required, orderBy, filters }
+ * options: { table, id, columns, readRoles, writeRoles, required, orderBy, filters, redact }
+ * `redact(row, req)` can hide columns from some roles in every response.
  * `filters` are query-string keys allowed in ?key=value (e.g. employee_id).
  */
-function crudRouter({ table, id, columns, readRoles, writeRoles, required = [], orderBy, filters = [] }) {
+function crudRouter({ table, id, columns, readRoles, writeRoles, required = [], orderBy, filters = [], redact = (row) => row }) {
   const router = express.Router();
+  const out = (req, row) => redact(row, req);
 
   router.get('/', authorize(...readRoles), asyncHandler(async (req, res) => {
     const where = [];
@@ -18,13 +20,13 @@ function crudRouter({ table, id, columns, readRoles, writeRoles, required = [], 
       if (req.query[f]) { where.push(`${f} = ?`); params.push(req.query[f]); }
     }
     const sql = `SELECT * FROM ${table}${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY ${orderBy || id}`;
-    res.json(await query(sql, params));
+    res.json((await query(sql, params)).map((r) => out(req, r)));
   }));
 
   router.get('/:id', authorize(...readRoles), asyncHandler(async (req, res) => {
     const rows = await query(`SELECT * FROM ${table} WHERE ${id} = ?`, [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: 'Record not found.' });
-    res.json(rows[0]);
+    res.json(out(req, rows[0]));
   }));
 
   router.post('/', authorize(...writeRoles), asyncHandler(async (req, res) => {
@@ -35,7 +37,7 @@ function crudRouter({ table, id, columns, readRoles, writeRoles, required = [], 
     const result = await query(sql, params);
     const newId = data[id] ?? result.insertId;
     const rows = await query(`SELECT * FROM ${table} WHERE ${id} = ?`, [newId]);
-    res.status(201).json(rows[0]);
+    res.status(201).json(out(req, rows[0]));
   }));
 
   router.put('/:id', authorize(...writeRoles), asyncHandler(async (req, res) => {
@@ -45,7 +47,7 @@ function crudRouter({ table, id, columns, readRoles, writeRoles, required = [], 
     const result = await query(sql, params);
     if (!result.affectedRows) return res.status(404).json({ error: 'Record not found.' });
     const rows = await query(`SELECT * FROM ${table} WHERE ${id} = ?`, [req.params.id]);
-    res.json(rows[0]);
+    res.json(out(req, rows[0]));
   }));
 
   router.delete('/:id', authorize(...writeRoles), asyncHandler(async (req, res) => {

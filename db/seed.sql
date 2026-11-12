@@ -144,3 +144,15 @@ SELECT t.timesheet_id, date(t.week_start, '+' || d || ' days'), 8 FROM timesheet
 
 -- Summit IT Partners requires a client-approved timesheet every week for Priya's project
 UPDATE work SET client_timesheet_required = 1 WHERE employee_id = 'EMP002' AND end_date IS NULL;
+
+-- Worksite, client reporting manager and LCA details for the two consultants on projects
+UPDATE work SET worksite_address = '525 N Tryon St, Floor 12', worksite_zip = '28202',
+  client_manager_name = 'Laura Hill', client_manager_title = 'Director, Payments Engineering',
+  client_manager_email = 'laura.hill@example.com', client_manager_phone = '555-0201',
+  lca_case_number = 'I-200-22340-123456', lca_wage_cents = 11500000, lca_wage_unit = 'YEAR'
+WHERE employee_id = 'EMP001' AND end_date IS NULL AND status = 'PROJECT';
+UPDATE work SET worksite_address = 'Remote (home office)', worksite_zip = '73301',
+  client_manager_name = 'Mark Evans', client_manager_title = 'Data Platform Manager',
+  client_manager_email = 'mark.evans@example.com', client_manager_phone = '555-0202',
+  lca_case_number = 'I-200-24120-654321', lca_wage_cents = 10800000, lca_wage_unit = 'YEAR'
+WHERE employee_id = 'EMP002' AND end_date IS NULL AND status = 'PROJECT';

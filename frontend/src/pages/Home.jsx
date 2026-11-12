@@ -16,6 +16,7 @@ const SOURCES = {
   agent: { path: '/marketing/dashboard', roles: ['MARKETING'], own: true },
   alerts: { path: '/alerts?unread=true', roles: ['CEO', 'HR', 'LEGAL'] },
   expiring: { path: '/immigration?within=90', roles: ['CEO', 'HR', 'LEGAL'] },
+  lca: { path: '/lca-reviews/summary', roles: ['CEO', 'HR', 'LEGAL'] },
   myTimesheets: { path: '/timesheets/mine', roles: ['EMPLOYEE'], own: true },
   myDocs: { path: '/documents/mine', roles: ['EMPLOYEE'], own: true },
   myProfile: { path: '/me/profile', roles: ['EMPLOYEE'], own: true },
@@ -51,6 +52,13 @@ function buildTasks(role, d) {
     add(alerts, { tone: 'bad', count: alerts, title: 'Unread visa / LCA alerts', detail: 'Expiry reminders from the daily check', to: '/immigration' });
     const exp = (d.expiring || []).filter((v) => !['FILED', 'RENEWED', 'EXPIRED'].includes(v.case_status)).length;
     add(is('LEGAL', 'HR') && exp, { tone: 'warn', count: exp, title: 'Visas / LCAs expiring within 90 days', detail: 'Open cases that are not yet filed or renewed', to: '/immigration' });
+  }
+  if (is('HR', 'LEGAL', 'CEO') && d.lca) {
+    const go = '/immigration?tab=changes';
+    add(is('LEGAL') && d.lca.awaiting_decision, { tone: 'bad', count: d.lca.awaiting_decision, title: 'H-1B assignment changes to review', detail: 'New client, worksite or job title: decide if a new LCA / amendment is needed', to: go });
+    add(is('LEGAL', 'HR') && d.lca.amendment_to_file, { tone: 'bad', count: d.lca.amendment_to_file, title: 'LCA amendments to file', detail: 'The employee must not start or move until it is filed', to: go });
+    add(is('LEGAL', 'HR') && d.lca.posting_to_do, { tone: 'warn', count: d.lca.posting_to_do, title: 'LCA notices to post', detail: 'Post at the new worksite for 10 business days', to: go });
+    add(d.lca.h1b_on_bench, { tone: 'warn', count: d.lca.h1b_on_bench, title: 'H-1B employees on bench', detail: 'The LCA wage must still be paid while on bench', to: go });
   }
   if (is('HR', 'CEO') && d.finance) {
     add(d.finance.overdue_cents > 0, { tone: 'bad', count: fmtMoney(d.finance.overdue_cents), title: 'Overdue from vendors / clients', detail: `${fmtMoney(d.finance.outstanding_cents)} outstanding in total`, to: '/finance' });

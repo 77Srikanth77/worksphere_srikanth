@@ -15,6 +15,7 @@ import JobPostings from './pages/JobPostings';
 import JobComposer from './pages/JobComposer';
 import JobPosting from './pages/JobPosting';
 import MyJobs from './pages/MyJobs';
+import Import from './pages/Import';
 import MarketingTeam from './pages/MarketingTeam';
 import Finance from './pages/Finance';
 import MyTimesheets from './pages/MyTimesheets';
@@ -41,6 +42,7 @@ export default function App() {
       <Route path="/login" element={user ? <Navigate to={home} replace /> : <Login />} />
       <Route element={<RequireRole><Layout /></RequireRole>}>
         <Route path="/home" element={<Home />} />
+        <Route path="/import" element={<RequireRole roles={['HR', 'LEGAL']}><Import /></RequireRole>} />
         <Route path="/jobs" element={<RequireRole roles={['MARKETING', 'MARKETING_MANAGER']}><JobPostings /></RequireRole>} />
         <Route path="/jobs/new" element={<RequireRole roles={['MARKETING', 'MARKETING_MANAGER']}><JobComposer /></RequireRole>} />
         <Route path="/jobs/:id" element={<RequireRole roles={['MARKETING', 'MARKETING_MANAGER']}><JobPosting /></RequireRole>} />

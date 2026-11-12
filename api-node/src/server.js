@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const { authenticate } = require('./middleware/auth');
 const crudRouter = require('./utils/crudRouter');
+const { redactWork } = require('./utils/lca');
 
 if (!process.env.JWT_SECRET) {
   console.error('JWT_SECRET is missing. Copy .env.example to .env and fill it in.');
@@ -11,7 +12,7 @@ if (!process.env.JWT_SECRET) {
 
 const app = express();
 app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173' }));
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '5mb' })); // Excel import commits can carry up to 2000 rows
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
@@ -24,6 +25,8 @@ app.use('/api', authenticate);
 app.use('/api/me', require('./routes/me'));
 app.use('/api/employees', require('./routes/employees'));
 app.use('/api/immigration', require('./routes/immigration'));
+app.use('/api/h1b-cap', require('./routes/h1bCap'));
+app.use('/api/lca-reviews', require('./routes/lcaReviews'));
 app.use('/api/alerts', require('./routes/alerts'));
 app.use('/api/marketing', require('./routes/marketing'));
 app.use('/api/reports', require('./routes/reports'));
@@ -33,17 +36,22 @@ app.use('/api/finance', require('./routes/finance'));
 app.use('/api/timesheets', require('./routes/timesheets'));
 app.use('/api/jobs', require('./routes/jobs'));
 app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/imports', require('./routes/imports'));
 
+// Worksite / client manager / LCA details: HR and Legal
+app.use('/api/work', require('./routes/workDetails'));
 app.use('/api/work', crudRouter({
   table: 'work',
   id: 'work_id',
   columns: ['employee_id', 'client_id', 'vendor_id', 'project_name', 'job_title', 'job_duties',
-    'work_location', 'city', 'state', 'status', 'start_date', 'end_date', 'client_timesheet_required'],
-  required: ['employee_id', 'status', 'start_date'],
+    'work_location', 'city', 'state', 'status', 'start_date', 'end_date', 'client_timesheet_required',
+    'worksite_address', 'worksite_zip', 'client_manager_name', 'client_manager_title', 'client_manager_email', 'client_manager_phone'],
+  required: ['employee_id', 'status', 'start_date', 'job_title'],
   readRoles: ['CEO', 'HR', 'LEGAL', 'MARKETING'],
   writeRoles: ['HR'],
   filters: ['employee_id', 'status'],
   orderBy: 'start_date DESC',
+  redact: (row, req) => redactWork(row, req.user.role),
 }));
 
 app.use('/api/clients', crudRouter({
@@ -105,6 +113,9 @@ app.use((err, req, res, next) => {
   }
   if (err.code === 'SQLITE_CONSTRAINT_NOTNULL') {
     return res.status(400).json({ error: 'A required field is missing.' });
+  }
+  if (err.code === 'SQLITE_CONSTRAINT_TRIGGER') {
+    return res.status(400).json({ error: String(err.message).replace(/^.*?:\s*/, '') });
   }
   if (err.code === 'SQLITE_BUSY') return res.status(503).json({ error: 'The database is busy. Try again in a moment.' });
   res.status(500).json({ error: 'Something went wrong on the server.' });

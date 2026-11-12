@@ -7,12 +7,13 @@ export const NAV = [
   { to: '/documents', label: 'Documents', roles: ['CEO', 'HR', 'LEGAL'], desc: 'Passports, visas, I-94s, I-797s and other required documents' },
   { to: '/timesheet-review', label: 'Timesheets', roles: ['CEO', 'HR'], desc: 'Approve weekly timesheets, chase missing weeks, hours for payroll' },
   { to: '/finance', label: 'Finance', roles: ['CEO', 'HR'], desc: 'Bill rates, invoices, payments and what vendors owe' },
-  { to: '/immigration', label: 'Immigration', roles: ['CEO', 'HR', 'LEGAL'], desc: 'Visa and LCA register, expiry alerts and case status' },
+  { to: '/immigration', label: 'Immigration', roles: ['CEO', 'HR', 'LEGAL'], desc: 'Visa and LCA register, H-1B cap cases, expiry alerts and case status' },
   { to: '/marketing', label: 'My Marketing', roles: ['MARKETING'], desc: 'Your bench consultants, submissions and vendor follow-ups' },
   { to: '/jobs', label: 'Job Postings', roles: ['MARKETING', 'MARKETING_MANAGER'], desc: 'Describe a role, see matching employees live, send it to them' },
   { to: '/profile', label: 'My Profile', roles: ['EMPLOYEE'], desc: 'Your details, project, interviews, submissions and documents' },
   { to: '/timesheets', label: 'My Timesheets', roles: ['EMPLOYEE'], desc: 'Enter and submit your weekly hours' },
   { to: '/my-jobs', label: 'Job Openings', roles: ['EMPLOYEE'], desc: 'Roles your marketing agent sent you; reply interested or not' },
+  { to: '/import', label: 'Import', roles: ['HR', 'LEGAL'], desc: 'Fill employees, assignments, visas and LCA details from an Excel sheet' },
   { to: '/users', label: 'Users', roles: ['ADMIN'], desc: 'Create logins and manage access' },
 ];
 
